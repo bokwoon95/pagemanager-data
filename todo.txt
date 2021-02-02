@@ -1,0 +1,28 @@
+- serve directory /pm-assets at URL /pm-assets
+- serve directory /pm-images at URL /pm-images
+
+I think my decision is that themes should have their fallback assets crystalised at startup. No changing.
+template metadata is still dynamically determined by reading pm-assets-config.js every time. This is because the location of the template file will directly tell you where the config file is located, so you only have to check one place and move on.
+I will have to break up pm-assets-config.js:
+    - one for fallback-assets-config.js
+    - one for templates-config.js
+theme authors can reference any asset under /pm-assets/* or /pm-images/*, but for the fallback resource it always has to be under the theme's own subdirectory. They still have to type out the full path (/pm-assets/<theme>/<resource>) though, to avoid ambiguity.
+Any other assets they wish to reference, but do not know if exists, should be added to fallback-assets-config.js.
+    The most common usage would be <img> src references in HTML and background-image: url(); references in CSS, but it could theoretically also allow for themes to reference user-created stylesheets with fallback stylesheets if not exist.
+
+== pm-assets semantics ==
+contains theme folders, whose contents the user shouldn't touch (unless the theme folder was created by the user).
+the user may add his own assets (templates, css, js) under pm-assets directly, which he of course has full freedom to modify.
+
+== pm-images semantics ==
+contains images uploaded by the user. themes can reference any image in it, but they can also provide a fallback asset in case the image does not exist.
+
+pm-assets
+pm-files?
+
+why a server over a static site?
+- Personal Dropbox
+    - web client interface, but you can also run a local copy of PageManager Files to achieve document syncing (?)
+- rss reader
+- powerpoint replacement
+- personal GTD organizer

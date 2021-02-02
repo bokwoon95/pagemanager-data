@@ -25,7 +25,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/mitchellh/mapstructure"
-	"github.com/pelletier/go-toml"
 )
 
 var pagemanagerFS fs.FS
@@ -49,9 +48,7 @@ type PageManager struct {
 	notfound   http.Handler
 	renderly   *renderly.Renderly
 	htmlPolicy *bluemonday.Policy
-
-	firsttime     bool
-	trailingslash bool
+	firsttime  bool
 }
 
 func New() (*PageManager, error) {
@@ -339,13 +336,23 @@ type TemplateMetadata struct {
 }
 
 func GetTemplateMetadata(fsys fs.FS, filename string) (TemplateMetadata, error) {
-	const tomlfile = "templates-config.toml"
-	const jsfile = "templates-config.js"
+	const jsfile = "pm-assets-config.js"
 	// var configPath string
 	metadata := TemplateMetadata{
 		Name: filename,
 		Env:  make(map[string]interface{}),
 	}
+	const assetdir = "/pm-assets/"
+	i := strings.Index(filename, assetdir)
+	if i != 0 {
+		return metadata, erro.Wrap(fmt.Errorf("filename does not start with " + assetdir))
+	}
+	filename = filename[len(assetdir):]
+	i = strings.Index(filename, "/")
+	if i > 0 {
+	} else {
+	}
+
 	currentPath := filename
 	var b []byte
 	var err error
@@ -392,29 +399,6 @@ func GetTemplateMetadata(fsys fs.FS, filename string) (TemplateMetadata, error) 
 				return metadata, erro.Wrap(err)
 			}
 			return metadata, nil
-		}
-		// try toml
-		path = currentPath + string(os.PathSeparator) + tomlfile
-		if currentPath == "." {
-			path = tomlfile
-		}
-		b, err = fs.ReadFile(fsys, path)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return metadata, erro.Wrap(err)
-		}
-		if err == nil {
-			mainTree, err := toml.LoadBytes(b)
-			if err != nil {
-				return metadata, erro.Wrap(err)
-			}
-			subTree, _ := mainTree.GetPath([]string{filename}).(*toml.Tree)
-			if subTree != nil {
-				err = subTree.Unmarshal(&metadata)
-				if err != nil {
-					return metadata, erro.Wrap(err)
-				}
-				return metadata, nil
-			}
 		}
 	}
 	return metadata, nil

@@ -3,7 +3,7 @@ module github.com/bokwoon95/pagemanager-data
 go 1.16
 
 require (
-	github.com/bokwoon95/erro v0.0.0-20210111060637-c6f3d7de83db
+	github.com/bokwoon95/erro v0.0.0-20210202044924-8768de1b075c
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgraph-io/ristretto v0.0.3
 	github.com/dlclark/regexp2 v1.4.0 // indirect
@@ -15,6 +15,5 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.4
 	github.com/mitchellh/mapstructure v1.4.1
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c
-	github.com/pelletier/go-toml v1.8.1
 	golang.org/x/text v0.3.5 // indirect
 )
