@@ -15,6 +15,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/bokwoon95/erro"
@@ -31,8 +33,10 @@ var pagemanagerFS fs.FS
 
 func init() {
 	flag.Parse()
+	_, currentFile, _, _ := runtime.Caller(0)
+	currentDir := filepath.Join(currentFile, "..") + string(os.PathSeparator)
 	if pagemanagerFS == nil {
-		pagemanagerFS = os.DirFS(renderly.AbsDir("."))
+		pagemanagerFS = os.DirFS(currentDir)
 	}
 }
 
@@ -49,6 +53,7 @@ type PageManager struct {
 	renderly   *renderly.Renderly
 	htmlPolicy *bluemonday.Policy
 	firsttime  bool
+	pmfs       pmFS
 }
 
 func New() (*PageManager, error) {
@@ -209,7 +214,7 @@ func (pm *PageManager) getroute(path string) (Route, error) {
 }
 
 func (pm *PageManager) Middleware(next http.Handler) http.Handler {
-	mux := pm.renderly.FileServerMiddleware()(pm.newmux(next))
+	mux := pm.pmfs.fileservermiddleware()(pm.newmux(next))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		route, err := pm.getroute(r.URL.Path)
 		if err != nil {
@@ -251,36 +256,44 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 			}
 			editTemplate = route.Template.Valid
 		}
+		// if route.Template.Valid {
+		// 	metadata, err := GetTemplateMetadata(pm.fsys, route.Template.String) // TODO: cache the metadata
+		// 	if err != nil {
+		// 		http.Error(w, erro.Sdump(err), http.StatusInternalServerError)
+		// 		return
+		// 	}
+		// 	for policy, values := range metadata.CSP {
+		// 		allvalues := strings.Join(values, " ")
+		// 		_ = renderly.AppendCSP(w, policy, allvalues)
+		// 	}
+		// 	var mainfile = metadata.Name
+		// 	var includefiles []string
+		// 	if metadata.MainTemplate != "" {
+		// 		mainfile = metadata.MainTemplate
+		// 		includefiles = append(includefiles, metadata.Name)
+		// 	}
+		// 	includefiles = append(includefiles, metadata.Include...)
+		// 	if editTemplate {
+		// 		includefiles = append(includefiles, "pagemanager::pagemanager.js", "pagemanager::pagemanager.css")
+		// 	}
+		// 	data := make(map[string]interface{})
+		// 	if len(metadata.Env) > 0 {
+		// 		data["Env"] = metadata.Env
+		// 	}
+		// 	_ = r.ParseForm()
+		// 	var jsonify bool
+		// 	if _, ok := r.Form["json"]; ok {
+		// 		jsonify = true
+		// 	}
+		// 	err = pm.renderly.Page(w, r, mainfile, includefiles, data, renderly.JSEnv(metadata.Env), renderly.JSONifyData(jsonify))
+		// 	if err != nil {
+		// 		http.Error(w, erro.Sdump(err), http.StatusInternalServerError)
+		// 		return
+		// 	}
+		// 	return
+		// }
 		if route.Template.Valid {
-			metadata, err := GetTemplateMetadata(pm.fsys, route.Template.String) // TODO: cache the metadata
-			if err != nil {
-				http.Error(w, erro.Sdump(err), http.StatusInternalServerError)
-				return
-			}
-			for policy, values := range metadata.CSP {
-				allvalues := strings.Join(values, " ")
-				_ = renderly.AppendCSP(w, policy, allvalues)
-			}
-			var mainfile = metadata.Name
-			var includefiles []string
-			if metadata.MainTemplate != "" {
-				mainfile = metadata.MainTemplate
-				includefiles = append(includefiles, metadata.Name)
-			}
-			includefiles = append(includefiles, metadata.Include...)
-			if editTemplate {
-				includefiles = append(includefiles, "pagemanager::pagemanager.js", "pagemanager::pagemanager.css")
-			}
-			data := make(map[string]interface{})
-			if len(metadata.Env) > 0 {
-				data["Env"] = metadata.Env
-			}
-			_ = r.ParseForm()
-			var jsonify bool
-			if _, ok := r.Form["json"]; ok {
-				jsonify = true
-			}
-			err = pm.renderly.Page(w, r, mainfile, includefiles, data, renderly.JSEnv(metadata.Env), renderly.JSONifyData(jsonify))
+			err := pm.Render(route.Template.String)
 			if err != nil {
 				http.Error(w, erro.Sdump(err), http.StatusInternalServerError)
 				return
@@ -402,6 +415,10 @@ func GetTemplateMetadata(fsys fs.FS, filename string) (TemplateMetadata, error) 
 		}
 	}
 	return metadata, nil
+}
+
+func (pm *PageManager) Render(filename string) error {
+	return nil
 }
 
 // aliasing to dynamic URLs is not supported. If a plugin wishes to make a URL aliasable, it has to make the route static i.e. no :colon prefix, or {curly braces}/<angle brackets> delimiters.
@@ -669,4 +686,85 @@ func (pm *PageManager) getRowsWithID(env map[string]interface{}, key, id string)
 		return array, nil
 	}
 	return nil, nil
+}
+
+func appendCSP(w http.ResponseWriter, policy, value string) error {
+	const key = "Content-Security-Policy"
+	if value == "" {
+		return nil
+	}
+	CSP := w.Header().Get(key)
+	if CSP == "" {
+		// w.Header().Set(key, policy+" "+value)
+		return nil
+	}
+	CSP = strings.ReplaceAll(CSP, "\n", " ") // newlines screw up the regex matching, remove them
+	re, err := regexp.Compile(`(.*` + policy + `[^;]*)(;|$)(.*)`)
+	if err != nil {
+		return erro.Wrap(err)
+	}
+	matches := re.FindStringSubmatch(CSP)
+	if len(matches) == 0 {
+		w.Header().Set(key, CSP+"; "+policy+" "+value)
+		return nil
+	}
+	newCSP := matches[1] + " " + value + matches[2] + matches[3]
+	w.Header().Set(key, newCSP)
+	return nil
+}
+
+func existsCSP(w http.ResponseWriter, policy, value string) bool {
+	const key = "Content-Security-Policy"
+	if value == "" {
+		return false
+	}
+	CSP := w.Header().Get(key)
+	if CSP == "" {
+		// w.Header().Set(key, policy+" "+value)
+		return false
+	}
+	policyGroups := strings.Split(CSP, ";")
+	for _, policyGroup := range policyGroups {
+		policyGroup := strings.TrimSpace(policyGroup)
+		if strings.HasPrefix(policyGroup, policy) {
+			if strings.Contains(policyGroup, value) {
+				return true
+			}
+			return false
+		}
+	}
+	return false
+}
+
+type pmFS struct {
+	datafolder fs.FS
+	virtualFS  map[string]fs.FS
+}
+
+func (pmfs pmFS) Open(name string) (fs.File, error) {
+	if !strings.HasPrefix(name, "/pm-assets/") && !strings.HasPrefix(name, "/pm-images/") {
+		return nil, erro.Wrap(fmt.Errorf("name must start with /pm-assets/ or /pm-images/"))
+	}
+	fsys := pmfs.datafolder
+	if i := strings.Index(name, "::"); i > 0 {
+		fsysName := name[11:i]
+		name = name[i:]
+		if altfs := pmfs.virtualFS[fsysName]; altfs != nil {
+			fsys = altfs
+		}
+	}
+	return fsys.Open(name)
+}
+
+func (pmfs pmFS) fileservermiddleware() func(http.Handler) http.Handler {
+	fileserver := http.FileServer(http.FS(pmfs))
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasPrefix(r.URL.Path, "/pm-assets/") && !strings.HasPrefix(r.URL.Path, "/pm-images/") {
+				next.ServeHTTP(w, r)
+				return
+			}
+			fileserver.ServeHTTP(w, r)
+		})
+	}
 }

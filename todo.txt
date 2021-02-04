@@ -1,5 +1,9 @@
 - serve directory /pm-assets at URL /pm-assets
 - serve directory /pm-images at URL /pm-images
+That means: remove the reliance on renderly's fileserver. I will be serving the files manually from pagemanager (how does that work, when I need the muxFS behaviour?)
+
+pagemanager safeHTML should accept an interface instead of a string. This allows it to handle all sorts of input, such as nil, sql.NullString and string. It always outputs a template.HTML. That way user no longer need to check {{ if notNull $item }}{{ $item | safeHTML }}{{ else }}{{ end }}.
+    Oh god wait they still need some way to check if null so that they can substitute their own fallback data.
 
 I think my decision is that themes should have their fallback assets crystalised at startup. No changing.
 template metadata is still dynamically determined by reading pm-assets-config.js every time. This is because the location of the template file will directly tell you where the config file is located, so you only have to check one place and move on.

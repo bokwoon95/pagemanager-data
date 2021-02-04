@@ -61,9 +61,15 @@ document.addEventListener("DOMContentLoaded", function main() {
     };
   }
 
-  // pmCreateElement is a helper function wrapper around document.createElement().
-  // It allows you to additionally specify the element's attributes and children
-  // when creating the element.
+  /**
+   * pmCreateElement is a helper function wrapper around document.createElement().
+   * It allows you to additionally specify the element's attributes and children
+   * when creating the element.
+   *
+   * @param {string} tag
+   * @param {object} attributes
+   * @param {...HTMLElement} children
+   */
   function pmCreateElement(tag, attributes, ...children) {
     if (tag.includes("<") && tag.includes(">") && attributes === undefined && children.length === 0) {
       const template = document.createElement("template");
