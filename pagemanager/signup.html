@@ -5,23 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" type="text/css" href="/pm-assets/pagemanager::tachyons.css">
   <link rel="stylesheet" type="text/css" href="/pm-assets/pagemanager::style.css">
-  <title>PageManager Login</title>
+  <title>PageManager Signup</title>
 </head>
 <body class="bg-light-gray sans-serif">
   <div></div>
-  <div id="login">
-    <h1>PageManager Login</h1>
-    <form id="loginform" name="loginform" method="POST" action="" class="bg-white">
-      <div class="mv2"><label>Username or Email Address:</label></div>
+  <div id="signup">
+    <h1>PageManager Signup</h1>
+    <form id="signupform" name="signupform" method="POST" action="" class="bg-white">
+      <div class="mv2"><label for="pm-user-login">Username or Email Address:</label></div>
       <div><input type="text" id="pm-user-login" name="pm-user-login" class="bg-near-white pa2 w-100"></div>
-      <div class="mv2 pt2"><label>Password:</label></div>
+      <div class="mv2 pt2"><label for="pm-user-password">Password:</label></div>
       <div><input type="text" id="pm-user-password" name="pm-user-password" class="bg-near-white pa2 w-100"></div>
       <div class="mv2 pt2">
-        <input id="remember-me" type="checkbox" class="pointer">
-        <label for="remember-me" class="ml1 pointer">Remember Me</label>
-      </div>
-      <div class="mv2 pt2">
-        <button type="submit">Log in</button>
+        <button type="submit">Sign Up</button>
       </div>
     </form>
   </div>

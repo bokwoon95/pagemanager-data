@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="stylesheet" type="text/css" href="/pm-assets/pagemanager::tachyons.css" media="screen">
   <link rel="stylesheet" type="text/css" href="/pm-assets/plainsimple/index.css" media="screen">
   {{ .Env.CSS }}
   <title></title>
@@ -87,7 +88,7 @@
       <hr>
     </article>
     {{ end }}
-    <img src="/static/templates/imagecanvas/image.jpg" data-pm.img.upload="/static/templates/imagecanvas/image.jpg" data-pm.img.fallback="/static/templates/imagecanvas/face.jpg" height="400" width="600">
+    <img src="/pm-images/plainsimple/face.jpg" data-pm.img.upload="/pm-images/plainsimple/face.jpg" data-pm.img.fallback="/pm-assets/plainsimple/face.jpg" height="400" width="600">
   </main>
   <footer class="flex justify-center mt5 pb3">
     {{ $owner := getValueWithID .Env "owner" "imagecanvas-globals" }}

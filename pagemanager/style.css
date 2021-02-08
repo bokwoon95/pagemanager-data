@@ -8,12 +8,12 @@
   background-color: #f1f1f1;
 }
 
-#login {
+#login, #signup {
   width: 320px;
   margin: auto;
 }
 
-#loginform {
+#loginform, #signupform {
   margin-top: 20px;
   margin-left: 0;
   padding: 26px 24px 46px;

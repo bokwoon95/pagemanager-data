@@ -2,8 +2,12 @@ package pagemanager
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,6 +26,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/pelletier/go-toml"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var pagemanagerFS fs.FS
@@ -93,6 +98,38 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if route.TemplateNamespace.Valid && route.TemplateName.Valid {
+			path := filepath.Clean(filepath.Join("pm-assets", route.TemplateNamespace.String, route.TemplateName.String))
+			t, err := template.New(filepath.Base(path)).Funcs(pm.FuncMap()).ParseFS(pm.datafolder, path)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			user, err := pm.sessionGet(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			_ = user
+			data := make(map[string]interface{})
+			env := make(map[string]interface{})
+			env["EditMode"] = false
+			env["PageID"] = r.URL.Path
+			data["Env"] = env
+			_ = r.ParseForm()
+			if _, ok := r.Form["json"]; ok {
+				b, err := json.Marshal(data)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				_, _ = w.Write(b)
+				return
+			}
+			err = t.Execute(w, data)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -351,8 +388,8 @@ var tables = []table{
 	{
 		name: "pm_users",
 		columns: []column{
-			{name: "user_id", typ: "BIGINT", constraints: []string{"NOT NULL", "PRIMARY KEY"}},
-			{name: "username", typ: "TEXT", constraints: []string{"NOT NULL"}},
+			{name: "user_id", typ: "INTEGER", constraints: []string{"PRIMARY KEY"}}, // sqlite's INTEGER PRIMARY KEY == AUTOINCREMENT
+			{name: "username", typ: "TEXT", constraints: []string{"NOT NULL", "UNIQUE"}},
 			{name: "password_hash", typ: "TEXT"},
 		},
 	},
@@ -371,7 +408,7 @@ var tables = []table{
 	{
 		name: "pm_sessions",
 		columns: []column{
-			{name: "hash", typ: "TEXT", constraints: []string{"NOT NULL", "PRIMARY KEY"}},
+			{name: "session_hash", typ: "TEXT", constraints: []string{"NOT NULL", "PRIMARY KEY"}},
 			{name: "user_id", typ: "BIGINT", constraints: []string{"NOT NULL"}},
 			{name: "created_at", typ: "DATETIME"},
 		},
@@ -519,61 +556,282 @@ func (pm *PageManager) newmux(defaultHandler http.Handler) http.Handler {
 		}
 	})
 	mux.HandleFunc("/pm-login", pm.login)
+	mux.HandleFunc("/pm-signup", pm.signup)
+	mux.HandleFunc("/pm-logout", func(w http.ResponseWriter, r *http.Request) {
+		_, err := pm.db.Exec("DELETE FROM pm_sessions")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		http.Redirect(w, r, "/", http.StatusMovedPermanently)
+	})
 	return mux
 }
 
 func (pm *PageManager) login(w http.ResponseWriter, r *http.Request) {
-	t, err := template.ParseFS(pagemanagerFS, "login.html")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	switch r.Method {
+	case "GET", "":
+		t, err := template.ParseFS(pagemanagerFS, "login.html")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		err = t.Execute(w, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	case "POST":
+		username := r.FormValue("pm-user-login")
+		password := r.FormValue("pm-user-password")
+		if username == "" || password == "" {
+			http.Error(w, "username or password cannot be empty", http.StatusBadRequest)
+			return
+		}
+		user, err := pm.authenticate(username, password)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		err = pm.sessionSet(w, r, user)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/", http.StatusMovedPermanently)
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
-	err = t.Execute(w, nil)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+}
+
+func (pm *PageManager) signup(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET", "":
+		t, err := template.ParseFS(pagemanagerFS, "signup.html")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		err = t.Execute(w, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	case "POST":
+		username := r.FormValue("pm-user-login")
+		password := r.FormValue("pm-user-password")
+		if username == "" || password == "" {
+			http.Error(w, "username or password cannot be empty", http.StatusBadRequest)
+			return
+		}
+		user, err := pm.createuser(username, password)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		err = pm.sessionSet(w, r, user)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/", http.StatusMovedPermanently)
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
 }
 
 // TODO: the cookie needs to store the OG sessionKey. The database merely stores the hash of the sessionKey. To validate if a user's sessionKey (in their cookie) is a valid sessionKey, simply hash the sessionKey and check for its existence in the database.
-// gorilla securecookie cannot do this because it handles the hashing internally for you. It was built to encode + hash a Go variable into a string, and it can decode + hash verify the string back into the Go variable. 
+// gorilla securecookie cannot do this because it handles the hashing internally for you. It was built to encode + hash a Go variable into a string, and it can decode + hash verify the string back into the Go variable.
 // But that's not what I need, I need the intermediate hash because that's what I need to store inside the database. The actual content I'm interested in 'decoding' from the cookie is the hash, because my payload isn't some arbitrary Go variable, it's always a sessionKey (i.e. a plain string)
 
-func (pm *PageManager) sessionSet(w http.ResponseWriter, r *http.Request, userID int64) error {
-	randomBytes := securecookie.GenerateRandomKey(128)
-	if len(randomBytes) == 0 {
-		return erro.Wrap(fmt.Errorf("key could not be generated"))
-	}
-	key := base64.URLEncoding.EncodeToString(randomBytes)
-	_, err := pm.db.Exec("INSERT INTO pm_sessions (hash, user_id) VALUES (?, ?)", key, userID)
+func randomstring(length int) string {
+	b := make([]byte, length)
+	_, err := rand.Read(b)
 	if err != nil {
-		return erro.Wrap(err)
+		return ""
 	}
-	val, err := pm.cookifier.Encode("session_id", key)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+type User struct {
+	Valid    bool
+	UserID   int64
+	Username string
+}
+
+const hmackey = "hmackey"
+
+func (pm *PageManager) createuser(username, password string) (user User, err error) {
+	var exists bool
+	err = pm.db.QueryRow("SELECT EXISTS(SELECT 1 FROM pm_users WHERE username = ?)", username).Scan(&exists)
+	if err != nil {
+		return user, erro.Wrap(err)
+	}
+	if exists {
+		return user, erro.Wrap(fmt.Errorf("User with username %s already exists", username))
+	}
+	b, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return user, erro.Wrap(err)
+	}
+	res, err := pm.db.Exec("INSERT INTO pm_users (username, password_hash) VALUES (?, ?)", username, string(b))
+	if err != nil {
+		return user, erro.Wrap(err)
+	}
+	user.UserID, err = res.LastInsertId()
+	if err != nil {
+		return user, erro.Wrap(err)
+	}
+	user.Valid = true
+	user.Username = username
+	return user, nil
+}
+
+func (pm *PageManager) authenticate(username, password string) (user User, err error) {
+	var userID sql.NullInt64
+	var passwordHash sql.NullString
+	err = pm.db.QueryRow("SELECT user_id, password_hash FROM pm_users WHERE username = ?", username).Scan(&userID, &passwordHash)
+	if err != nil {
+		return user, erro.Wrap(err)
+	}
+	if !passwordHash.Valid {
+		return user, erro.Wrap(fmt.Errorf("user '%s' has no password", username))
+	}
+	err = bcrypt.CompareHashAndPassword([]byte(passwordHash.String), []byte(password))
+	if err != nil {
+		return user, erro.Wrap(err)
+	}
+	user.Valid = true
+	user.UserID = userID.Int64
+	user.Username = username
+	return user, nil
+}
+
+func (pm *PageManager) sessionSet(w http.ResponseWriter, r *http.Request, user User) error {
+	sessionKey := randomstring(32)
+	h := hmac.New(sha256.New, []byte(hmackey))
+	h.Write([]byte(sessionKey))
+	sessionHash := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	_, err := pm.db.Exec("INSERT INTO pm_sessions (session_hash, user_id) VALUES (?, ?)", sessionHash, user.UserID)
 	if err != nil {
 		return erro.Wrap(err)
 	}
 	cookie := &http.Cookie{
-		Name:     "session_id",
-		Value:    val,
-		Path:     "/",
-		Secure:   true,
+		Name:  "pm_session_key",
+		Value: sessionKey,
+		Path:  "/",
+		// Secure:   true,
 		HttpOnly: true,
 	}
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	http.SetCookie(w, cookie)
 	return nil
 }
 
-func (pm *PageManager) sessionGet(w http.ResponseWriter, r *http.Request) (userID int64, err error) {
-	cookie, err := r.Cookie("session_id")
+func (pm *PageManager) sessionGet(w http.ResponseWriter, r *http.Request) (user User, err error) {
+	cookie, err := r.Cookie("pm_session_key")
 	if err != nil {
-		return 0, erro.Wrap(err)
+		if errors.Is(err, http.ErrNoCookie) {
+			return user, nil
+		}
+		return user, erro.Wrap(err)
 	}
-	var key string
-	err = pm.cookifier.Decode("session_id", cookie.Value, &key)
+	sessionKey := cookie.Value
+	h := hmac.New(sha256.New, []byte(hmackey))
+	h.Write([]byte(sessionKey))
+	sessionHash := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	err = pm.db.QueryRow(`
+	SELECT pm_users.user_id, pm_users.username
+	FROM pm_users
+	JOIN pm_sessions ON pm_sessions.user_id = pm_users.user_id
+	WHERE pm_sessions.session_hash = ?
+	`, sessionHash).Scan(&user.UserID, &user.Username)
 	if err != nil {
-		return 0, erro.Wrap(err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return user, nil
+		}
+		return user, erro.Wrap(err)
 	}
-	return userID, nil
-	// _, err = pm.db.QueryRow("SELECT user_id FROM pm_sessions WHERE hash = ?", key)
+	user.Valid = true
+	return user, nil
+}
+
+func (pm *PageManager) FuncMap() map[string]interface{} {
+	funcmap := map[string]interface{}{
+		"safeHTML":       func(s string) template.HTML { return template.HTML(s) },
+		"safeJS":         func(s string) template.JS { return template.JS(s) },
+		"getValue":       pm.getValue,
+		"getValueWithID": pm.getValueWithID,
+		"getRows":        pm.getRows,
+		"getRowsWithID":  pm.getRowsWithID,
+		"notNull":        notNull,
+	}
+	return funcmap
+}
+
+func (pm *PageManager) getValue(env map[string]interface{}, key string) (interface{}, error) {
+	id, ok := env["PageID"].(string)
+	if !ok {
+		return nil, nil
+	}
+	return pm.getValueWithID(env, key, id)
+}
+
+func (pm *PageManager) getValueWithID(env map[string]interface{}, key, id string) (interface{}, error) {
+	var value sql.NullString
+	query := "SELECT json_extract(data, ?) FROM pm_templatedata WHERE id = ?"
+	err := pm.db.QueryRow(query, "$."+key, id).Scan(&value)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if value.Valid {
+		return value.String, nil
+	}
+	return nil, nil
+}
+
+func notNull(val interface{}) bool {
+	if val == nil {
+		return false
+	}
+	switch val := val.(type) {
+	case string:
+		return true
+	case sql.NullString:
+		return val.Valid
+	default:
+		return false
+	}
+}
+
+func (pm *PageManager) getRows(env map[string]interface{}, key string) ([]interface{}, error) {
+	id, ok := env["PageID"].(string)
+	if !ok {
+		return nil, nil
+	}
+	return pm.getRowsWithID(env, key, id)
+}
+
+func (pm *PageManager) getRowsWithID(env map[string]interface{}, key, id string) ([]interface{}, error) {
+	var s sql.NullString
+	query := "SELECT json_extract(data, ?) FROM pm_templatedata WHERE id = ?"
+	id = strings.TrimSuffix(id, "/edit")
+	err := pm.db.QueryRow(query, "$."+key, id).Scan(&s)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	var array []interface{}
+	if s.Valid {
+		err = json.Unmarshal([]byte(s.String), &array)
+		if err != nil {
+			return array, err
+		}
+		return array, nil
+	}
+	return nil, nil
 }
