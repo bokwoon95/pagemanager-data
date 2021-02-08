@@ -1,0 +1,42 @@
+html {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Oxygen,
+    Cantarell, sans-serif;
+}
+
+.pm-toolbar {
+  background-color: black;
+  display: flex;
+  flex-wrap: wrap;
+  position: fixed;
+  bottom: 0;
+  width: 100vw;
+  padding: 0 5px 0 5px;
+}
+.pm-toolbar-button {
+  background-color: white;
+  border: 2px solid black;
+  cursor: pointer;
+  color: black;
+  padding: 0.1rem 0.8rem;
+}
+.pm-toolbar-button-label {
+  display: block;
+  font-size: 0.5rem;
+}
+.pm-toolbar-button:hover {
+  background-color: #eeeeee;
+}
+.pm-toolbar-button:active {
+  position: relative;
+  top: 1px;
+}
+[data-pm\.key] {
+  background-color: hsla(121, 54%, 68%, 0.3);
+  border-width: thin;
+  border-style: dashed;
+}
+[data-pm\.row\.key],[data-pm\.row\.href] {
+  background-color: hsla(17, 67%, 60%, 0.3);
+  border-width: thin;
+  border-style: dashed;
+}

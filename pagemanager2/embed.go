@@ -1,6 +1,6 @@
 // +build embed
 
-package pagemanager
+package pagemanager2
 
 import "embed"
 

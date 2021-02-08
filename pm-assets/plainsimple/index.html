@@ -2,11 +2,102 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="stylesheet" type="text/css" href="/pm-assets/plainsimple/index.css" media="screen">
   {{ .Env.CSS }}
   <title></title>
 </head>
 <body>
-  hello
+  <nav class="absolute w-100">
+    <ul class="flex flex-wrap justify-end list pa0">
+      {{ if .Env.EditMode }}
+      <button class="nav-link" data-pm.template="new-nav" data-pm.insertafter="nav-injection">Add Section</button>
+      <li id="new-nav" class="nav-link" data-pm.row="nav"><a href="" data-pm.row.href="link" data-pm.row.key="title">Section</a></li>
+      <li id="nav-injection"></li>
+      {{ end }}
+      {{ range $i, $row := getRows .Env "nav" }}
+      <li class="nav-link" data-pm.row="nav"><a href="{{ $row.link }}" data-pm.row.href="link" data-pm.row.key="title">{{ $row.title }}</a></li>
+      {{ else }}
+      <li class="nav-link" data-pm.row="nav"><a href="/" data-pm.row.href="link" data-pm.row.key="title">Home</a></li>
+      <li class="nav-link" data-pm.row="nav"><a href="/about-me" data-pm.row.href="link" data-pm.row.key="title">About Me</a></li>
+      <li class="nav-link" data-pm.row="nav"><a href="/contact" data-pm.row.href="link" data-pm.row.key="title">Contact</a></li>
+      {{ end }}
+    </ul>
+  </nav>
+  <header class="hero-banner flex justify-center items-center" data-pm.img.fallback="/static/templates/plainsimple/hero.jpg">
+    <div class="tc white">
+      {{ $title := getValueWithID .Env "title" "imagecanvas-globals" }}
+      <h1 class="f1 text-border" data-pm.key="title" data-pm.id="imagecanvas-globals">
+        {{- if notNull $title }}{{ $title | safeHTML }}{{ else }}My Blog{{ end -}}
+      </h1>
+      {{ $subtitle := getValueWithID .Env "subtitle" "imagecanvas-globals" }}
+      <h2 class="f3 text-border tc" data-pm.key="subtitle" data-pm.id="imagecanvas-globals">
+        {{- if notNull $subtitle }}{{ $subtitle | safeHTML }}{{ else }}Where I write about <em>stuff</em>{{ end -}}
+      </h2>
+    </div>
+  </header>
+  <main class="posts-list pt4-l pb2-l ph7-l">
+    {{ range $i, $post := getRows .Env "posts" }}
+    <article data-pm.row="posts">
+      <div class="f6 mt2 gray" data-pm.row.key="date">{{ $post.date | safeHTML }}</div>
+      <div class="f3 fw7 lh-title"><a href="{{ $post.link }}" data-pm.row.href="link" data-pm.row.key="title">{{ $post.title | safeHTML }}</a></div>
+      <div class="mt3" data-pm.row.key="summary">{{ $post.summary | safeHTML }}</div>
+      <div class="mt2 mb4"><a href="{{ $post.link }}">read more</a></div>
+      <hr>
+    </article>
+    {{ else }}
+    <article data-pm.row="posts">
+      <div class="f6 mt2 gray" data-pm.row.key="date">2020 June 18</div>
+      <div class="f3 fw7 lh-title"><a href="" data-pm.row.href="link" data-pm.row.key="title">HASH: a free, online platform for modeling the world</a></div>
+      <div class="mt3" data-pm.row.key="summary">Sometimes <b>simulating</b> complex systems is the best way to understand them.</div>
+      <div class="mt2 mb4"><a href="">read more</a></div>
+      <hr>
+    </article>
+    <article data-pm.row="posts">
+      <div class="f6 mt2 gray" data-pm.row.key="date">2019 December 05</div>
+      <div class="f3 fw7 lh-title"><a href="" data-pm.row.href="link" data-pm.row.key="title">So, how’s that retirement thing going, anyway?</a></div>
+      <div class="mt3" data-pm.row.key="summary">For the last couple of months, Prashanth Chandrasekar has been getting settled in as the new CEO of Stack Overflow. I’m still going on some customer calls…</div>
+      <div class="mt2 mb4"><a href="">read more</a></div>
+      <hr>
+    </article>
+    <article data-pm.row="posts">
+      <div class="f6 mt2 gray" data-pm.row.key="date">2019 September 24</div>
+      <div class="f3 fw7 lh-title"><a href="" data-pm.row.href="link" data-pm.row.key="title">Welcome, Prashanth!</a></div>
+      <div class="mt3" data-pm.row.key="summary">Last March, I shared that we were starting to look for a new CEO for Stack Overflow. We were looking for that rare combination of someone who…</div>
+      <div class="mt2 mb4"><a href="">read more</a></div>
+      <hr>
+    </article>
+    <article data-pm.row="posts">
+      <div class="f6 mt2 gray" data-pm.row.key="date">2019 March 28</div>
+      <div class="f3 fw7 lh-title"><a href="" data-pm.row.href="link" data-pm.row.key="title">The next CEO of Stack Overflow</a></div>
+      <div class="mt3" data-pm.row.key="summary">We’re looking for a new CEO for Stack Overflow. I’m stepping out of the day-to-day and up to the role of Chairman of the Board.</div>
+      <div class="mt2 mb4"><a href="" data-pm.row.href="link">read more</a></div>
+      <hr>
+    </article>
+    {{ end }}
+    {{ if .Env.EditMode }}
+    <div id="article-injection"></div>
+    <div class="pv2">
+      <button data-pm.template="new-article" data-pm.insertafter="article-injection">Add Article</button>
+    </div>
+    <article id="new-article" data-pm.row="posts">
+      <div class="f6 mt2 gray" data-pm.row.key="date">2020 January 01</div>
+      <div class="f3 fw7 lh-title"><a href="" data-pm.row.href="link" data-pm.row.key="title">Lorem ipsum dolor sit amet</a></div>
+      <div class="mt3" data-pm.row.key="summary">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</div>
+      <div class="mt2 mb4"><a href="">read more</a></div>
+      <hr>
+    </article>
+    {{ end }}
+    <img src="/static/templates/imagecanvas/image.jpg" data-pm.img.upload="/static/templates/imagecanvas/image.jpg" data-pm.img.fallback="/static/templates/imagecanvas/face.jpg" height="400" width="600">
+  </main>
+  <footer class="flex justify-center mt5 pb3">
+    {{ $owner := getValueWithID .Env "owner" "imagecanvas-globals" }}
+    <div>
+      Copyright © 2020
+      <span data-pm.key="owner" data-pm.id="imagecanvas-globals">
+        {{- if notNull $owner }}{{ $owner | safeHTML }}{{ else }}Robert Table{{ end -}}
+      </span>. All rights reserved.
+    </div>
+  </footer>
   {{ .Env.JS }}
 </body>
 </html>
