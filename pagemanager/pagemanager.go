@@ -17,6 +17,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -469,6 +470,10 @@ func ensuretables(driver string, db *sql.DB) error {
 				return erro.Wrap(err)
 			}
 		}
+	}
+	err = exec.Command("sqlite3", "database.sqlite3", ".read data.sql").Run()
+	if err != nil {
+		return erro.Wrap(err)
 	}
 	return nil
 }
