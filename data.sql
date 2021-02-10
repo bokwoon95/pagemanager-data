@@ -13,7 +13,7 @@ ON CONFLICT (url) DO UPDATE SET
 INSERT INTO pm_routes
     (url, template_namespace, template_name)
 VALUES
-    ('/posts', 'plainsimple', 'index.html')
+    ('/posts', 'plainsimple/', 'index.html')
 ON CONFLICT (url) DO UPDATE SET
     template_namespace = EXCLUDED.template_namespace
     ,template_name = EXCLUDED.template_name

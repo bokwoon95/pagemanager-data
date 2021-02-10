@@ -1,6 +1,7 @@
 package pagemanager
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -16,14 +17,16 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/bokwoon95/erro"
-	"github.com/gorilla/securecookie"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/pelletier/go-toml"
@@ -50,7 +53,6 @@ type PageManager struct {
 	sanitizer      *bluemonday.Policy
 	firsttime      bool
 	restart        chan struct{}
-	cookifier      *securecookie.SecureCookie
 }
 
 func (pm *PageManager) Middleware(next http.Handler) http.Handler {
@@ -63,21 +65,34 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 	})
 	mux := pm.newmux(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r2 := &http.Request{}
+		*r2 = *r
 		if strings.HasPrefix(r.URL.Path, "/pm-assets/") || strings.HasPrefix(r.URL.Path, "/pm-images/") {
 			handlerFS.ServeHTTP(w, r)
 			return
 		}
-		route, err := pm.getroute(r.URL.Path)
+		// TODO: fukk why changing the URL serverside will also change the URL clientside?
+		if strings.HasPrefix(r.URL.Path, "/pm-edit/") {
+			r2 = r2.WithContext(context.WithValue(r2.Context(), "pm-edit", true))
+			r2.URL = &url.URL{}
+			r2.URL.Path = strings.TrimPrefix(r.URL.Path, "/pm-edit/")
+		} else if strings.HasPrefix(r.URL.Path, "/pm-json/") {
+			r2 = r2.WithContext(context.WithValue(r2.Context(), "pm-json", true))
+			r2.URL = &url.URL{}
+			r2.URL.Path = strings.TrimPrefix(r.URL.Path, "/pm-json/")
+		}
+		// only use r2 onwards
+		route, err := pm.getroute(r2.URL.Path)
 		if err != nil {
 			http.Error(w, erro.Sdump(err), http.StatusInternalServerError)
 			return
 		}
 		if route.Disabled.Valid && route.Disabled.Bool {
-			http.NotFound(w, r)
+			http.NotFound(w, r2)
 			return
 		}
 		if route.RedirectURL.Valid {
-			http.Redirect(w, r, route.RedirectURL.String, http.StatusMovedPermanently)
+			http.Redirect(w, r2, route.RedirectURL.String, http.StatusMovedPermanently)
 			return
 		}
 		if route.HandlerNamespace.Valid && route.HandlerName.Valid {
@@ -91,7 +106,7 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 				http.Error(w, "No such handler "+route.HandlerName.String, http.StatusInternalServerError)
 				return
 			}
-			handler.ServeHTTP(w, r)
+			handler.ServeHTTP(w, r2)
 			return
 		}
 		if route.Content.Valid {
@@ -100,12 +115,17 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 		}
 		if route.TemplateNamespace.Valid && route.TemplateName.Valid {
 			path := filepath.Clean(filepath.Join("pm-assets", route.TemplateNamespace.String, route.TemplateName.String))
-			t, err := template.New(filepath.Base(path)).Funcs(pm.FuncMap()).ParseFS(pm.datafolder, path)
+			b, err := fs.ReadFile(pm.datafolder, path)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			user, err := pm.sessionGet(w, r)
+			t, err := template.New(path).Funcs(pm.FuncMap()).Parse(string(b))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			user, err := pm.sessionGet(w, r2)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -114,7 +134,7 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 			data := make(map[string]interface{})
 			env := make(map[string]interface{})
 			env["EditMode"] = false
-			env["PageID"] = r.URL.Path
+			env["PageID"] = r2.URL.Path
 			data["Env"] = env
 			_ = r.ParseForm()
 			if _, ok := r.Form["json"]; ok {
@@ -133,7 +153,7 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 			}
 			return
 		}
-		mux.ServeHTTP(w, r)
+		mux.ServeHTTP(w, r2)
 	})
 }
 
@@ -187,8 +207,6 @@ func (pm *PageManager) Setup() error {
 	// bluemonday
 	pm.sanitizer = bluemonday.UGCPolicy()
 	pm.sanitizer.AllowStyling()
-	// cookifier
-	pm.cookifier = securecookie.New([]byte("hashkey"), []byte("encryptkey"))
 	// fallbackassets
 	if pm.fallbackassets == nil {
 		pm.fallbackassets = make(map[string]string)
@@ -775,6 +793,7 @@ func (pm *PageManager) FuncMap() map[string]interface{} {
 		"getRows":        pm.getRows,
 		"getRowsWithID":  pm.getRowsWithID,
 		"notNull":        notNull,
+		"getOK":          pm.getOK,
 	}
 	return funcmap
 }
@@ -839,4 +858,16 @@ func (pm *PageManager) getRowsWithID(env map[string]interface{}, key, id string)
 		return array, nil
 	}
 	return nil, nil
+}
+
+func (pm *PageManager) getOK(url string) (bool, error) {
+	r, err := http.NewRequest("GET", path.Join("http://localhost:80", url), &bytes.Buffer{})
+	if err != nil {
+		return false, err
+	}
+	w := httptest.NewRecorder()
+	pm.Middleware(http.NotFoundHandler()).ServeHTTP(w, r)
+	resp := w.Result()
+	defer resp.Body.Close()
+	return resp.StatusCode == 200, nil
 }

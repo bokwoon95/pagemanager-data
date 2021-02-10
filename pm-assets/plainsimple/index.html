@@ -88,7 +88,11 @@
       <hr>
     </article>
     {{ end }}
-    <img src="/pm-images/plainsimple/face.jpg" data-pm.img.upload="/pm-images/plainsimple/face.jpg" data-pm.img.fallback="/pm-assets/plainsimple/face.jpg" height="400" width="600">
+    {{ if getOK "/pm-images/plainsimple/face.jpg" }}
+      <img src="/pm-images/plainsimple/face.jpg" data-pm.img.upload="/pm-images/plainsimple/face.jpg" data-pm.img.fallback="/pm-assets/plainsimple/face.jpg" height="400" width="600">
+    {{ else }}
+      <img src="/pm-assets/plainsimple/face.jpg" data-pm.img.upload="/pm-images/plainsimple/face.jpg" data-pm.img.fallback="/pm-assets/plainsimple/face.jpg" height="400" width="600">
+    {{ end }}
   </main>
   <footer class="flex justify-center mt5 pb3">
     {{ $owner := getValueWithID .Env "owner" "imagecanvas-globals" }}
