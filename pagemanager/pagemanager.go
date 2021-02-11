@@ -18,7 +18,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -65,34 +64,33 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 	})
 	mux := pm.newmux(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r2 := &http.Request{}
-		*r2 = *r
-		if strings.HasPrefix(r.URL.Path, "/pm-assets/") || strings.HasPrefix(r.URL.Path, "/pm-images/") {
+		path := r.URL.Path
+		var pmJSON, pmEdit bool
+		if strings.HasPrefix(path, "/pm-assets/") || strings.HasPrefix(path, "/pm-images/") {
 			handlerFS.ServeHTTP(w, r)
 			return
 		}
-		// TODO: fukk why changing the URL serverside will also change the URL clientside?
-		if strings.HasPrefix(r.URL.Path, "/pm-edit/") {
-			r2 = r2.WithContext(context.WithValue(r2.Context(), "pm-edit", true))
-			r2.URL = &url.URL{}
-			r2.URL.Path = strings.TrimPrefix(r.URL.Path, "/pm-edit/")
-		} else if strings.HasPrefix(r.URL.Path, "/pm-json/") {
-			r2 = r2.WithContext(context.WithValue(r2.Context(), "pm-json", true))
-			r2.URL = &url.URL{}
-			r2.URL.Path = strings.TrimPrefix(r.URL.Path, "/pm-json/")
+		if strings.HasPrefix(path, "/pm-json/") {
+			pmJSON = true
+			r = r.WithContext(context.WithValue(r.Context(), "pm-json", pmJSON))
+			path = strings.TrimPrefix(path, "/pm-json")
 		}
-		// only use r2 onwards
-		route, err := pm.getroute(r2.URL.Path)
+		if strings.HasPrefix(path, "/pm-edit/") {
+			pmEdit = true
+			r = r.WithContext(context.WithValue(r.Context(), "pm-edit", pmEdit))
+			path = strings.TrimPrefix(path, "/pm-edit")
+		}
+		route, err := pm.getroute(path)
 		if err != nil {
 			http.Error(w, erro.Sdump(err), http.StatusInternalServerError)
 			return
 		}
 		if route.Disabled.Valid && route.Disabled.Bool {
-			http.NotFound(w, r2)
+			http.NotFound(w, r)
 			return
 		}
 		if route.RedirectURL.Valid {
-			http.Redirect(w, r2, route.RedirectURL.String, http.StatusMovedPermanently)
+			http.Redirect(w, r, route.RedirectURL.String, http.StatusMovedPermanently)
 			return
 		}
 		if route.HandlerNamespace.Valid && route.HandlerName.Valid {
@@ -106,7 +104,7 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 				http.Error(w, "No such handler "+route.HandlerName.String, http.StatusInternalServerError)
 				return
 			}
-			handler.ServeHTTP(w, r2)
+			handler.ServeHTTP(w, r)
 			return
 		}
 		if route.Content.Valid {
@@ -125,7 +123,7 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			user, err := pm.sessionGet(w, r2)
+			user, err := pm.sessionGet(w, r)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -134,7 +132,7 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 			data := make(map[string]interface{})
 			env := make(map[string]interface{})
 			env["EditMode"] = false
-			env["PageID"] = r2.URL.Path
+			env["PageID"] = path
 			data["Env"] = env
 			_ = r.ParseForm()
 			if _, ok := r.Form["json"]; ok {
@@ -146,14 +144,23 @@ func (pm *PageManager) Middleware(next http.Handler) http.Handler {
 				_, _ = w.Write(b)
 				return
 			}
-			err = t.Execute(w, data)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+			if pmJSON {
+				b, err := json.Marshal(data)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				_, _ = w.Write(b)
+			} else {
+				err = t.Execute(w, data)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
 			}
 			return
 		}
-		mux.ServeHTTP(w, r2)
+		mux.ServeHTTP(w, r)
 	})
 }
 
